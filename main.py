@@ -2,12 +2,14 @@
 import discord
 from discord.ext import commands
 import os
+from keep_alive import keep_alive  # Importa nossa função para manter o bot online
 
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
+
 
 @bot.event
 async def on_ready():
@@ -23,22 +25,21 @@ async def on_ready():
     print('------------------------------------')
     print('Robô está online e pronto para uso!')
 
-# --- COMANDO DE SINCRONIZAÇÃO FINAL ---
+
 @bot.command()
 @commands.is_owner()
 async def sync(ctx, spec: str = None):
-    # Comando para limpar os comandos APENAS do servidor atual
     if spec == "clear":
         ctx.bot.tree.clear_commands(guild=ctx.guild)
         await ctx.bot.tree.sync(guild=ctx.guild)
         await ctx.send("Comandos locais limpos para este servidor.")
         return
-
-    # Sincroniza os comandos para o servidor atual (instantâneo)
     guild = ctx.guild
     ctx.bot.tree.copy_global_to(guild=guild)
     synced = await ctx.bot.tree.sync(guild=guild)
     await ctx.send(f"Sincronizado {len(synced)} comandos para este servidor.")
 
-# Lembre-se de colocar seu token aqui
-bot.run('SEU_TOKEN_VAI_AQUI')
+
+keep_alive()
+token = os.environ['DISCORD_TOKEN']
+bot.run(token)
