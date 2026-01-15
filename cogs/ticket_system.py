@@ -1,176 +1,137 @@
-# cogs/ticket_system.py
 import discord
-from discord import app_commands
 from discord.ext import commands
 from discord.ui import Button, View
+import asyncio
+import datetime
 
+# --- CONFIGURAÇÕES ---
 
-# --- VIEW PERSISTENTE PARA FECHAR O TICKET ---
-class CloseTicketView(View):
+# 1. ID do Cargo de Suporte (Opcional)
+SUPPORT_ROLE_ID = None 
 
-    def __init__(self, bot: commands.Bot):
-        super().__init__(timeout=None)  # timeout=None torna a View persistente
-        self.bot = bot
+# 2. NOME DO CANAL de Relatórios (Onde chegam as pesquisas)
+# Coloque o nome EXATAMENTE como está no Discord (geralmente letras minúsculas e traços)
+LOG_CHANNEL_NAME = "avaliações" 
 
-    @discord.ui.button(label="Fechar Ticket",
-                       style=discord.ButtonStyle.danger,
-                       custom_id="fechar_ticket_button",
-                       emoji="🔒")
-    async def fechar_ticket_callback(self, interaction: discord.Interaction,
-                                     button: Button):
-        # ... (código inalterado)
-        membro_staff = interaction.user
-        cargo_staff = discord.utils.get(interaction.guild.roles, name="Staff")
-        if cargo_staff and cargo_staff in membro_staff.roles:
-            await interaction.response.send_message(
-                f"O ticket será fechado em 5 segundos por {membro_staff.mention}...",
-                ephemeral=False)
-            import asyncio
-            await asyncio.sleep(5)
-            await interaction.channel.delete(
-                reason=f"Ticket fechado por {membro_staff.name}")
-        else:
-            await interaction.response.send_message(
-                "Apenas membros da equipe Staff podem fechar um ticket.",
-                ephemeral=True)
+class TicketLauncher(View):
+    def __init__(self):
+        super().__init__(timeout=None)
 
-    @discord.ui.button(label="Notificar Usuário",
-                       style=discord.ButtonStyle.secondary,
-                       custom_id="notificar_usuario_button",
-                       emoji="🔔")
-    async def notificar_usuario_callback(self,
-                                         interaction: discord.Interaction,
-                                         button: Button):
-        # ... (código inalterado)
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        membro_staff = interaction.user
-        cargo_staff = discord.utils.get(interaction.guild.roles, name="Staff")
-        if not cargo_staff or cargo_staff not in membro_staff.roles:
-            await interaction.followup.send(
-                "Apenas membros da equipe Staff podem usar este botão.",
-                ephemeral=True)
-            return
-        ticket_owner = None
-        for target in interaction.channel.overwrites:
-            if isinstance(target, discord.Member) and target != self.bot.user:
-                ticket_owner = target
-                break
-        if not ticket_owner:
-            await interaction.followup.send(
-                "Não foi possível encontrar o dono deste ticket.",
-                ephemeral=True)
-            return
-        try:
-            dm_embed = discord.Embed(
-                title="🔔 Notificação de Ticket",
-                description=
-                f"Olá! Um membro da equipe ({membro_staff.mention}) está aguardando sua resposta no seu ticket: {interaction.channel.mention}",
-                color=discord.Color.yellow())
-            await ticket_owner.send(embed=dm_embed)
-            await interaction.followup.send(
-                f"Notificação enviada com sucesso para {ticket_owner.mention}!",
-                ephemeral=True)
-        except discord.Forbidden:
-            await interaction.followup.send(
-                "Não foi possível notificar o usuário. Ele pode ter desativado as mensagens privadas de membros do servidor.",
-                ephemeral=True)
-
-
-# --- VIEW PERSISTENTE PARA ABRIR O TICKET ---
-class OpenTicketView(View):
-
-    def __init__(self, bot: commands.Bot):
-        super().__init__(timeout=None)  # timeout=None torna a View persistente
-        self.bot = bot
-
-    @discord.ui.button(label="Abrir Ticket",
-                       style=discord.ButtonStyle.success,
-                       custom_id="abrir_ticket_button",
-                       emoji="🎟️")
-    async def abrir_ticket_callback(self, interaction: discord.Interaction,
-                                    button: Button):
-        # ... (código inalterado)
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        membro = interaction.user
-        cargo_staff = discord.utils.get(interaction.guild.roles, name="Staff")
-        categoria = discord.utils.get(interaction.guild.categories,
-                                      name="TICKETS")
-        if not categoria or not cargo_staff:
-            await interaction.followup.send(
-                "ERRO DE CONFIGURAÇÃO: O cargo `Staff` ou a categoria `TICKETS` não foram encontrados.",
-                ephemeral=True)
-            return
-        for channel in categoria.text_channels:
-            if channel.name == f"ticket-{membro.name.lower()}":
-                await interaction.followup.send(
-                    f"Você já tem um ticket aberto em {channel.mention}!",
-                    ephemeral=True)
+    @discord.ui.button(label="Abrir Ticket", style=discord.ButtonStyle.green, custom_id="ticket_button", emoji="📩")
+    async def ticket_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        guild = interaction.guild
+        
+        # Verifica duplicidade
+        for channel in guild.text_channels:
+            if channel.topic and f"ID: {interaction.user.id}" in channel.topic:
+                await interaction.response.send_message("Você já tem um ticket aberto!", ephemeral=True)
                 return
+
+        # Permissões
         overwrites = {
-            interaction.guild.default_role:
-            discord.PermissionOverwrite(read_messages=False),
-            membro:
-            discord.PermissionOverwrite(read_messages=True,
-                                        send_messages=True),
-            cargo_staff:
-            discord.PermissionOverwrite(read_messages=True, send_messages=True)
+            guild.default_role: discord.PermissionOverwrite(read_messages=False),
+            interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
         }
+
+        if SUPPORT_ROLE_ID:
+            role = guild.get_role(SUPPORT_ROLE_ID)
+            if role:
+                overwrites[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+
+        # Cria canal
+        channel = await guild.create_text_channel(
+            name=f"ticket-{interaction.user.name}",
+            topic=f"Ticket de {interaction.user.name} | ID: {interaction.user.id}",
+            overwrites=overwrites
+        )
+
+        await interaction.response.send_message(f"Ticket criado em {channel.mention}!", ephemeral=True)
+
+        embed = discord.Embed(title="Atendimento Iniciado", description="Descreva seu problema. Um administrador logo irá atendê-lo.", color=discord.Color.blue())
+        await channel.send(embed=embed, view=CloseButton())
+
+class CloseButton(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Fechar Ticket e Avaliar", style=discord.ButtonStyle.red, custom_id="close_ticket_button", emoji="🔒")
+    async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("Fechando ticket e iniciando pesquisa...", ephemeral=True)
+        
+        channel = interaction.channel
+        topic = channel.topic
+        
+        user_id = None
+        if topic and "ID:" in topic:
+            try:
+                user_id = int(topic.split("ID: ")[1])
+            except:
+                pass
+
+        await asyncio.sleep(3)
+        await channel.delete()
+
+        if user_id:
+            user = interaction.guild.get_member(user_id)
+            if user:
+                await self.start_survey(user, interaction.guild)
+
+    async def start_survey(self, user, guild):
+        def check(m):
+            return m.author == user and isinstance(m.channel, discord.DMChannel)
+
         try:
-            nome_canal = f"ticket-{membro.name.lower()}"
-            canal_ticket = await interaction.guild.create_text_channel(
-                name=nome_canal,
-                category=categoria,
-                overwrites=overwrites,
-                reason=f"Ticket aberto por {membro.name}")
+            # Perguntas
+            await user.send(f"Olá, {user.name}! 👋 Seu ticket no servidor **{guild.name}** foi encerrado.\n\nPara nos ajudar, responda rapidinho:\n\n1️⃣ **De 1 a 5, que nota você dá para o nosso atendimento?**")
+            msg_nota = await user.client.wait_for('message', check=check, timeout=120)
+            nota = msg_nota.content
+
+            await user.send("📝 **O que você achou do atendimento?**")
+            msg_opiniao = await user.client.wait_for('message', check=check, timeout=180)
+            opiniao = msg_opiniao.content
+
+            await user.send("💡 **O que podemos fazer para melhorar?**")
+            msg_melhoria = await user.client.wait_for('message', check=check, timeout=180)
+            melhoria = msg_melhoria.content
+
+            await user.send("✅ **Muito obrigado!**")
+
+            # BUSCA O CANAL PELO NOME
+            if LOG_CHANNEL_NAME:
+                # É aqui que o robô procura o canal pelo nome
+                log_channel = discord.utils.get(guild.text_channels, name=LOG_CHANNEL_NAME)
+                
+                if log_channel:
+                    embed_log = discord.Embed(title="📊 Avaliação de Atendimento", color=discord.Color.gold(), timestamp=datetime.datetime.now())
+                    embed_log.add_field(name="Usuário", value=f"{user.name} (ID: {user.id})", inline=False)
+                    embed_log.add_field(name="Nota", value=f"{nota}/5 ⭐", inline=True)
+                    embed_log.add_field(name="Opinião", value=opiniao, inline=False)
+                    embed_log.add_field(name="Sugestão", value=melhoria, inline=False)
+                    await log_channel.send(embed=embed_log)
+                else:
+                    print(f"ERRO: Não encontrei nenhum canal chamado '{LOG_CHANNEL_NAME}'. Verifique o nome!")
+
         except discord.Forbidden:
-            await interaction.followup.send(
-                "ERRO: Não tenho permissão para criar canais.", ephemeral=True)
-            return
-        embed_boas_vindas = discord.Embed(
-            title=f"Ticket de {membro.name}",
-            description=
-            "Olá! Descreva seu problema ou dúvida em detalhes e aguarde a resposta de um membro da Staff. \n\nPara fechar este ticket, clique no botão abaixo.",
-            color=discord.Color.green())
-        await canal_ticket.send(
-            content=f"{membro.mention}, seu ticket foi criado!",
-            embed=embed_boas_vindas,
-            view=CloseTicketView(self.bot))
-        await interaction.followup.send(
-            f"Seu ticket foi criado com sucesso em {canal_ticket.mention}!",
-            ephemeral=True)
+            pass
+        except asyncio.TimeoutError:
+            await user.send("⏰ Ops! O tempo acabou. Obrigado mesmo assim!")
+        except Exception as e:
+            print(f"Erro na pesquisa: {e}")
 
-
-# --- O COG PRINCIPAL DO SISTEMA ---
-class TicketSystemCog(commands.Cog):
-
-    def __init__(self, bot: commands.Bot):
+class TicketSystem(commands.Cog):
+    def __init__(self, bot):
         self.bot = bot
+
+    @commands.command()
+    async def ticket(self, ctx):
+        embed = discord.Embed(title="Central de Ajuda", description="Clique no botão abaixo para falar com a equipe.", color=discord.Color.brand_green())
+        await ctx.send(embed=embed, view=TicketLauncher())
 
     @commands.Cog.listener()
     async def on_ready(self):
-        # Esta função agora registra as Views persistentes quando o bot liga
-        self.bot.add_view(OpenTicketView(self.bot))
-        self.bot.add_view(CloseTicketView(self.bot))
-        print("Views persistentes do sistema de ticket registradas.")
-
-    @app_commands.command(
-        name="painelticket",
-        description="Envia o painel para abrir tickets no canal atual.")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def painel_ticket(self, interaction: discord.Interaction):
-        # ... (código inalterado)
-        await interaction.response.send_message(
-            "Enviando o painel de tickets...", ephemeral=True)
-        embed_painel = discord.Embed(
-            title="🎟️ Suporte e Atendimento 🎟️",
-            description=
-            "Precisa de ajuda, quer fazer um pedido ou tem alguma dúvida? Clique no botão abaixo para abrir um ticket privado com nossa equipe.",
-            color=discord.Color.dark_blue())
-        await interaction.channel.send(embed=embed_painel,
-                                       view=OpenTicketView(self.bot))
-        await interaction.edit_original_response(
-            content="Painel enviado com sucesso!")
-
+        self.bot.add_view(TicketLauncher())
+        self.bot.add_view(CloseButton())
 
 async def setup(bot):
-    await bot.add_cog(TicketSystemCog(bot))
+    await bot.add_cog(TicketSystem(bot))
