@@ -9,22 +9,23 @@ import datetime
 # 1. ID do Cargo de Suporte (Opcional)
 SUPPORT_ROLE_ID = None 
 
-# 2. NOME DO CANAL de Relatórios (Onde chegam as pesquisas)
-# Coloque o nome EXATAMENTE como está no Discord (geralmente letras minúsculas e traços)
-LOG_CHANNEL_NAME = "avaliações" 
+# 2. NOME DO CANAL de Relatórios
+# O bot vai procurar um canal com EXATAMENTE este nome para mandar as pesquisas.
+LOG_CHANNEL_NAME = "logs-tickets" 
 
 class TicketLauncher(View):
     def __init__(self):
-        super().__init__(timeout=None)
+        super().__init__(timeout=None) # IMPORTANTE: Botão eterno
 
-    @discord.ui.button(label="Abrir Ticket", style=discord.ButtonStyle.green, custom_id="ticket_button", emoji="📩")
+    # O 'custom_id' é o CPF do botão. Graças a ele, o bot lembra quem é o botão mesmo após reiniciar.
+    @discord.ui.button(label="Abrir Ticket", style=discord.ButtonStyle.green, custom_id="ticket_button_persistente", emoji="📩")
     async def ticket_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         guild = interaction.guild
         
         # Verifica duplicidade
         for channel in guild.text_channels:
             if channel.topic and f"ID: {interaction.user.id}" in channel.topic:
-                await interaction.response.send_message("Você já tem um ticket aberto!", ephemeral=True)
+                await interaction.response.send_message("Ei, você já tem um ticket aberto! Termine o anterior primeiro.", ephemeral=True)
                 return
 
         # Permissões
@@ -46,16 +47,17 @@ class TicketLauncher(View):
             overwrites=overwrites
         )
 
-        await interaction.response.send_message(f"Ticket criado em {channel.mention}!", ephemeral=True)
+        await interaction.response.send_message(f"✅ Ticket criado com sucesso em {channel.mention}!", ephemeral=True)
 
         embed = discord.Embed(title="Atendimento Iniciado", description="Descreva seu problema. Um administrador logo irá atendê-lo.", color=discord.Color.blue())
+        # Ao criar a mensagem, passamos a View de fechar
         await channel.send(embed=embed, view=CloseButton())
 
 class CloseButton(View):
     def __init__(self):
-        super().__init__(timeout=None)
+        super().__init__(timeout=None) # Botão eterno
 
-    @discord.ui.button(label="Fechar Ticket e Avaliar", style=discord.ButtonStyle.red, custom_id="close_ticket_button", emoji="🔒")
+    @discord.ui.button(label="Fechar Ticket e Avaliar", style=discord.ButtonStyle.red, custom_id="close_ticket_btn_persistente", emoji="🔒")
     async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_message("Fechando ticket e iniciando pesquisa...", ephemeral=True)
         
@@ -99,7 +101,6 @@ class CloseButton(View):
 
             # BUSCA O CANAL PELO NOME
             if LOG_CHANNEL_NAME:
-                # É aqui que o robô procura o canal pelo nome
                 log_channel = discord.utils.get(guild.text_channels, name=LOG_CHANNEL_NAME)
                 
                 if log_channel:
@@ -110,7 +111,7 @@ class CloseButton(View):
                     embed_log.add_field(name="Sugestão", value=melhoria, inline=False)
                     await log_channel.send(embed=embed_log)
                 else:
-                    print(f"ERRO: Não encontrei nenhum canal chamado '{LOG_CHANNEL_NAME}'. Verifique o nome!")
+                    print(f"ERRO: Não encontrei nenhum canal chamado '{LOG_CHANNEL_NAME}'.")
 
         except discord.Forbidden:
             pass
@@ -128,8 +129,12 @@ class TicketSystem(commands.Cog):
         embed = discord.Embed(title="Central de Ajuda", description="Clique no botão abaixo para falar com a equipe.", color=discord.Color.brand_green())
         await ctx.send(embed=embed, view=TicketLauncher())
 
+    # --- AQUI ESTÁ A MÁGICA DA PERSISTÊNCIA ---
     @commands.Cog.listener()
     async def on_ready(self):
+        # Assim que o bot ligar, ele vai "registrar" as views na memória
+        # mesmo que a mensagem tenha sido enviada semanas atrás.
+        print("--- Registrando Botões de Ticket Persistentes ---")
         self.bot.add_view(TicketLauncher())
         self.bot.add_view(CloseButton())
 
