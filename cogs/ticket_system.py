@@ -6,7 +6,7 @@ import asyncio
 import datetime
 
 # --- PERSONALIZE AQUI (DEIXE IGUAL À SUA FOTO) ---
-TITULO_EMBED = "**Suporte e atendimento**" 
+TITULO_EMBED = "Suporte e atendimento" 
 DESCRICAO_EMBED = "Precisa de ajuda, quer fazer um pedido ou tem alguma dúvida? Clique no botão abaixo para abrir um ticket privado com nossa equipe."
 TEXTO_BOTAO_CRIAR = "Abrir Ticket" # O que vai estar escrito no botão verde
 # --- CONFIGURAÇÕES TÉCNICAS ---
@@ -18,20 +18,34 @@ class AvaliacaoModal(Modal, title="Avaliação de Atendimento"):
     opiniao = TextInput(label="O que achou do atendimento?", style=discord.TextStyle.paragraph, placeholder="Digite sua opinião aqui...", required=True)
     sugestao = TextInput(label="Sugestões de melhoria (Opcional)", style=discord.TextStyle.paragraph, required=False)
 
-    def __init__(self, bot, user, guild_name):
+    def __init__(self, bot, user, guild_name, original_message):
         super().__init__()
         self.bot = bot
         self.user = user
         self.guild_name = guild_name
+        self.original_message = original_message # Guardamos a mensagem original para editar depois
 
     async def on_submit(self, interaction: discord.Interaction):
         # Agradece ao usuário
         await interaction.response.send_message("✅ **Obrigado!** Sua avaliação foi enviada com sucesso.", ephemeral=True)
         
+        # --- AQUI ESTÁ A MÁGICA ---
+        # Só agora, depois de enviar, a gente desativa o botão na DM do usuário
+        try:
+            view_desativada = BotaoAvaliar(self.bot, self.guild_name)
+            for item in view_desativada.children:
+                if isinstance(item, discord.ui.Button):
+                    item.disabled = True
+                    item.label = "Avaliação Enviada"
+                    item.style = discord.ButtonStyle.grey
+            await self.original_message.edit(view=view_desativada)
+        except Exception as e:
+            print(f"Erro ao desativar botão: {e}")
+
         # Envia para o canal de logs
         guild = interaction.client.get_guild(interaction.guild_id) if interaction.guild else None
         
-        # Tenta achar o canal de logs em todos os servidores que o bot está (gambiarra segura)
+        # Tenta achar o canal de logs em todos os servidores que o bot está
         log_channel = None
         for g in interaction.client.guilds:
             c = discord.utils.get(g.text_channels, name=LOG_CHANNEL_NAME)
@@ -58,11 +72,10 @@ class BotaoAvaliar(View):
 
     @discord.ui.button(label="Responder Pesquisa de Satisfação", style=discord.ButtonStyle.blurple, emoji="📝")
     async def abrir_modal(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(AvaliacaoModal(self.bot, interaction.user, self.guild_name))
-        # Desativa o botão depois de clicar pra não floodar
-        button.disabled = True
-        button.label = "Pesquisa Aberta"
-        await interaction.message.edit(view=self)
+        # Passamos a mensagem original (interaction.message) para o Modal
+        await interaction.response.send_modal(AvaliacaoModal(self.bot, interaction.user, self.guild_name, interaction.message))
+        # NÃO DESATIVAMOS O BOTÃO AQUI MAIS.
+        # Ele só vai desativar lá no "on_submit" do Modal.
 
 # --- 3. CONTROLES DENTRO DO TICKET (FECHAR E CHAMAR) ---
 class TicketControls(View):
@@ -191,7 +204,7 @@ class TicketSystem(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
-        print("--- Ticket System V3 (Modal + Admin Lock) Carregado ---")
+        print("--- Ticket System V3.1 (Formulário Inteligente) Carregado ---")
         self.bot.add_view(TicketLauncher())
         self.bot.add_view(TicketControls())
 
