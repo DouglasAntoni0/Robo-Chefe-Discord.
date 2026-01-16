@@ -10,7 +10,7 @@ TITULO_EMBED = "**Suporte e atendimento**"
 DESCRICAO_EMBED = "Precisa de ajuda, quer fazer um pedido ou tem alguma dúvida? Clique no botão abaixo para abrir um ticket privado com nossa equipe."
 TEXTO_BOTAO_CRIAR = "Abrir Ticket" # O que vai estar escrito no botão verde
 # --- CONFIGURAÇÕES TÉCNICAS ---
-LOG_CHANNEL_NAME = "logs-tickets" # Nome exato do canal de logs
+LOG_CHANNEL_NAME = "avaliações" # Nome exato do canal de logs
 
 # --- 1. O FORMULÁRIO DE AVALIAÇÃO (MODAL) ---
 class AvaliacaoModal(Modal, title="Avaliação de Atendimento"):
