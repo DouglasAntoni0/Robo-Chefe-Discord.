@@ -95,7 +95,7 @@ class TicketSystem(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    # --- COMANDO DE BARRA NOVO ---
+    # --- COMANDO DE BARRA (/painelticket) ---
     @app_commands.command(name="painelticket", description="Cria o painel de tickets neste canal")
     @app_commands.checks.has_permissions(administrator=True)
     async def painelticket(self, interaction: discord.Interaction):
@@ -103,12 +103,7 @@ class TicketSystem(commands.Cog):
         await interaction.response.send_message("Painel enviado!", ephemeral=True)
         await interaction.channel.send(embed=embed, view=TicketLauncher())
 
-    # --- COMANDO PARA FORÇAR SINCRONIZAÇÃO (Se precisar) ---
-    @commands.command()
-    @commands.is_owner()
-    async def sync(self, ctx):
-        await ctx.bot.tree.sync()
-        await ctx.send("Comandos de barra sincronizados com sucesso! 🔄")
+    # Tirei o comando Sync daqui porque ele já existe no seu bot!
 
     @commands.Cog.listener()
     async def on_ready(self):
